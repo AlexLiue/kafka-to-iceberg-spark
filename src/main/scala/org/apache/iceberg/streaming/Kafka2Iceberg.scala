@@ -16,7 +16,7 @@ import org.apache.iceberg.streaming.core.accumulator.{PartitionOffset, StatusAcc
 import org.apache.iceberg.streaming.core.broadcast
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
 import org.apache.iceberg.streaming.exception.SchemaChangedException
-import org.apache.iceberg.streaming.utils.{HadoopUtils, SchemaUtils}
+import org.apache.iceberg.streaming.utils.{HadoopUtils, HiveUtils, SchemaUtils}
 import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata, OffsetCommitCallback}
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.streaming.dstream.InputDStream
@@ -299,7 +299,20 @@ object Kafka2Iceberg extends Logging{
       if(statusAcc.schemaVersion > 1){
         val schema = schemaBroadcast.value.versionToSchemaMap(statusAcc.schemaVersion)
         val dataFieldSchema = schema.getField("after").schema() /* 取 after 数值域的 schema */
-        HadoopUtils.checkAndAlterHadoopTableSchema(spark, icebergTableName, dataFieldSchema, enableDropColumn)
+        val schemaUpdated = HadoopUtils.checkAndAlterHadoopTableSchema(spark,
+          icebergTableName, dataFieldSchema, enableDropColumn)
+
+        /* 如果 Hadoop Catalog Table 表结构发生了变动重新创建 Hive 外表 */
+        if(schemaUpdated){
+          val props = cfg.getCfgAsProperties
+          val hiveJdbcUrl = props.getProperty(RunCfg.HIVE_JDBC_URL)
+          val hiveJdbcUser =  props.getProperty(RunCfg.HIVE_JDBC_USER)
+          val hiveJdbcPassword =  props.getProperty(RunCfg.HIVE_JDBC_PASSWORD)
+          val hiveExtendJars =  props.getProperty(RunCfg.HIVE_EXTEND_JARS)
+          val hadoopWarehouse =  props.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
+          HiveUtils.createOrReplaceHiveTable(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword,
+            hiveExtendJars,icebergTableName,hadoopWarehouse)
+        }
       }
     }
   }

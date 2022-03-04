@@ -22,20 +22,20 @@ object DDLUtils extends Logging{
                              structType: StructType
                             ): Unit = {
     /* create hadoop catalog table */
-    val cfg = tableCfg.getCfgAsProperties
-    val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-    val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
-    val comment = cfg.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
-    val tblProperties = cfg.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
+    val props = tableCfg.getCfgAsProperties
+    val icebergTableName = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val partitionBy = props.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
+    val comment = props.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
+    val tblProperties = props.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
     val needCreateTable = HadoopUtils.createHadoopTableIfNotExists(spark,icebergTableName, structType, partitionBy, comment, tblProperties)
 
     /* if need create hadoop table then, create hive catalog table by external mode */
     if(needCreateTable){
-      val hiveJdbcUrl = cfg.getProperty(RunCfg.HIVE_JDBC_URL)
-      val hiveJdbcUser =  cfg.getProperty(RunCfg.HIVE_JDBC_USER)
-      val hiveJdbcPassword =  cfg.getProperty(RunCfg.HIVE_JDBC_PASSWORD)
-      val hiveExtendJars =  cfg.getProperty(RunCfg.HIVE_EXTEND_JARS)
-      val hadoopWarehouse =  cfg.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
+      val hiveJdbcUrl = props.getProperty(RunCfg.HIVE_JDBC_URL)
+      val hiveJdbcUser =  props.getProperty(RunCfg.HIVE_JDBC_USER)
+      val hiveJdbcPassword =  props.getProperty(RunCfg.HIVE_JDBC_PASSWORD)
+      val hiveExtendJars =  props.getProperty(RunCfg.HIVE_EXTEND_JARS)
+      val hadoopWarehouse =  props.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
       HiveUtils.createOrReplaceHiveTable(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword,
         hiveExtendJars,icebergTableName,hadoopWarehouse)
     }
