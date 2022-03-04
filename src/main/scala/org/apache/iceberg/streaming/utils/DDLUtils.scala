@@ -36,7 +36,7 @@ object DDLUtils extends Logging{
       val hiveJdbcPassword =  cfg.getProperty(RunCfg.HIVE_JDBC_PASSWORD)
       val hiveExtendJars =  cfg.getProperty(RunCfg.HIVE_EXTEND_JARS)
       val hadoopWarehouse =  cfg.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
-      HiveUtils.createHiveTableIfNotExists(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword,
+      HiveUtils.createOrReplaceHiveTable(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword,
         hiveExtendJars,icebergTableName,hadoopWarehouse)
     }
   }

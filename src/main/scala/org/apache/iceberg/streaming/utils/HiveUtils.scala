@@ -21,7 +21,7 @@ object HiveUtils extends Logging{
    * @param icebergTableName 表名
    * @param hadoopWarehouse Hadoop 存储目录
    */
-  def createHiveTableIfNotExists(
+  def createOrReplaceHiveTable(
                                   hiveUrl: String,
                                   hiveUser: String,
                                   hivePassword: String,
@@ -57,7 +57,15 @@ object HiveUtils extends Logging{
     setWarehouseStmt.executeUpdate()
     setWarehouseStmt.close()
 
+    /* 表如果存在则 drop 删除历史的表 */
     val hiveTableName = icebergTableName.split("\\.",3).drop(1).mkString(".")
+    val dropTableDdl = s"DROP TABLE IF EXISTS $hiveTableName"
+    logInfo(s"Drop table if exists by sql [$dropTableDdl]")
+    val dropTableStmt = conn.prepareStatement(dropTableDdl)
+    dropTableStmt.executeUpdate()
+    dropTableStmt.close()
+
+    /* 创建 EXTERNAL TABLE  */
     val createTableDdl =
       s"""
          |CREATE EXTERNAL TABLE IF NOT EXISTS $hiveTableName

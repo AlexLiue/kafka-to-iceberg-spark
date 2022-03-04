@@ -12,7 +12,7 @@ class HiveUtilsTest extends org.scalatest.FunSuite {
     val icebergTableName = "hadoop.db_test.tbl_test"
     val hadoopWarehouse = "hdfs://hadoop:8020/user/test/iceberg"
 
-    HiveUtils.createHiveTableIfNotExists(
+    HiveUtils.createOrReplaceHiveTable(
       hiveUrl, hiveUser, hivePassword,extendJar,
       icebergTableName, hadoopWarehouse,
     )

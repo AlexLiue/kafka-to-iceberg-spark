@@ -29,6 +29,15 @@ partition = 2, offset = 1, key={"ID1": 1001, "ID2": "A"},value={"before": {"ID1"
 |test     |db_gb18030_test|tbl_test  |1645690414000|1             |mysql-bin.000010|8775    |u      |1645690414404|e45b718e-906f-11ec-89e3-0242c0a8640a:219|1               |1                         |test.db_gb18030_test.tbl_test|0             |12         |1645690414488 |1  |v1 |v2 |5  |12 |null|1645157193000|1645690414000|
 +---------+---------------+----------+-------------+--------------+----------------+--------+-------+-------------+----------------------------------------+----------------+--------------------------+-----------------------------+--------------+-----------+--------------+---+---+---+---+---+----+-------------+-------------+
 
+hive> select * from tbl_test_1;
+OK
+test	db_gb18030_test	tbl_test_1	1646295772000	1	mysql-bin.000021	44808	u	1646295772102	e45b718e-906f-11ec-89e3-0242c0a8640a:1369	1	1	test.db_gb18030_test.tbl_test_1	2	12	1646295772347	1001	A	V1-1	8012	NULL	NULL	NULL	NULL	1646101923000	1646295772000
+test	db_gb18030_test	tbl_test_1	1646129902000	1	mysql-bin.000019	28822	u	1646129902778	e45b718e-906f-11ec-89e3-0242c0a8640a:1160	1	1	test.db_gb18030_test.tbl_test_1	1	3	1646129902884	1002	A	V2-1	90141	NULL	NULL	NULL	NULL	1646101923000	1646129902000
+test	db_gb18030_test	tbl_test_1	1646297007000	1	mysql-bin.000021	46573	u	1646297007714	e45b718e-906f-11ec-89e3-0242c0a8640a:1374	1	1	test.db_gb18030_test.tbl_test_1	2	16	1646297007806	1003	A	V3-1	3019	NULL	NULL	4021	NULL	1646101923000	1646297007000
+test	db_gb18030_test	tbl_test_1	1646392418000	1	mysql-bin.000021	129081	u	1646392447328	e45b718e-906f-11ec-89e3-0242c0a8640a:1421	1	1	test.db_gb18030_test.tbl_test_1	2	17	1646392448004	1004	A	V3-1	4000	NULL	S4-14	4000	NULL	1646101923000	1646392418000
+test	db_gb18030_test	tbl_test_1	1646392418000	1	mysql-bin.000021	129482	u	1646392447328	e45b718e-906f-11ec-89e3-0242c0a8640a:1422	1	1	test.db_gb18030_test.tbl_test_1	0	3	1646392448005	1005	A	V3-1	5000	NULL	S4-44	4000	NULL	1646101923000	1646392418000
+Time taken: 0.222 seconds, Fetched: 5 row(s)
+
 ```
 
 ## Schema  管理说明
@@ -130,3 +139,6 @@ record.metadata.kafka.prefix = _kfk_
 
 ```
 
+CREATE EXTERNAL TABLE IF NOT EXISTS db_gb18030_test.tbl_test_1
+STORED BY 'org.apache.iceberg.mr.hive.HiveIcebergStorageHandler'
+TBLPROPERTIES ('iceberg.catalog'='hadoop')
