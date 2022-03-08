@@ -77,68 +77,70 @@ record.metadata.kafka.prefix = _kfk_
 ## 作业运行管理
 - 由于 Spark Streaming 为长驻应用服务,对于小数据量的表,存在资源过剩情况，在一个 Spark Streaming 批中，穿行处理多张小表。
 
+## 配置项说明
 
-## 执行日志示范 
-### Schema 更新示例   
-```text
-22/02/28 20:29:10 INFO BaseMetastoreCatalog: Table loaded by catalog: hive.db_gb18030_test.tbl_test
-22/02/28 20:29:10 INFO DDLHelper: table [hive.db_gb18030_test.tbl_test] schema changed, before [table {
-  1: _src_name: optional string
-  2: _src_db: optional string
-  3: _src_table: optional string
-  4: _src_ts_ms: optional long
-  5: _src_server_id: optional long
-  6: _src_file: optional string
-  7: _src_pos: optional long
-  8: _src_op: optional string
-  9: _src_ts_ms_r: optional long
-  10: _tsc_id: optional string
-  11: _tsc_total_order: optional long
-  12: _tsc_data_collection_order: optional long
-  13: _kfk_topic: optional string
-  14: _kfk_partition: optional int
-  15: _kfk_offset: optional long
-  16: _kfk_timestamp: optional long
-  17: id: optional int
-  18: c1: optional string
-  19: c2: optional string
-  20: c3: optional int
-  21: c4: optional long
-  22: create_time: optional long
-  23: update_time: optional long
-}]
-22/02/28 20:30:17 INFO BaseMetastoreTableOperations: Successfully committed to table hive.db_gb18030_test.tbl_test in 5597 ms
-22/02/28 20:30:43 INFO BaseMetastoreTableOperations: Refreshing table metadata from new version: hdfs://hadoop:8020/user/hive/warehouse/db_gb18030_test.db/tbl_test/metadata/00002-e37a7898-aeb8-4fd0-87a4-a8e5df132367.metadata.json
-22/02/28 20:30:44 INFO BaseMetastoreCatalog: Table loaded by catalog: hive.db_gb18030_test.tbl_test
-22/02/28 20:30:44 INFO DDLHelper: table [hive.db_gb18030_test.tbl_test] schema changed, after  [table {
-  1: _src_name: optional string
-  2: _src_db: optional string
-  3: _src_table: optional string
-  4: _src_ts_ms: optional long
-  5: _src_server_id: optional long
-  6: _src_file: optional string
-  7: _src_pos: optional long
-  8: _src_op: optional string
-  9: _src_ts_ms_r: optional long
-  10: _tsc_id: optional string
-  11: _tsc_total_order: optional long
-  12: _tsc_data_collection_order: optional long
-  13: _kfk_topic: optional string
-  14: _kfk_partition: optional int
-  15: _kfk_offset: optional long
-  16: _kfk_timestamp: optional long
-  17: id: optional int
-  18: c1: optional string
-  19: c2: optional string
-  20: c3: optional int
-  21: c4: optional long
-  24: c5: optional string
-  22: create_time: optional long
-  23: update_time: optional long
-}]
 
-```
+### Spark 配置
 
-CREATE EXTERNAL TABLE IF NOT EXISTS db_gb18030_test.tbl_test_1
-STORED BY 'org.apache.iceberg.mr.hive.HiveIcebergStorageHandler'
-TBLPROPERTIES ('iceberg.catalog'='hadoop')
+| 参数名                                       | 是否可为空 | 参数说明                                                                                                                 |  
+|:------------------------------------------| :------: |:---------------------------------------------------------------------------------------------------------------------|  
+| spark.master                              | 否 | Spark Context Deploy Mode                                                                                            |  
+| spark.app.name                            | 否 | ApplicationName                                                                                                      |  
+| spark.streaming.kafka.maxRatePerPartition | 否 | 每秒每个Partition 读取的最大记录条数                                                                                              |  
+| spark.app.name                            | 否 | ApplicationName                                                                                                      |
+| spark.yarn.jars                           | 否 | 作业运行依赖包地址包含 Iceberg、Hive、Spark 的依赖                                                                                   |  
+| spark.sql.sources.partitionOverwriteMode  | 否 | spark.sql.sources.partitionOverwriteMode                                                                             |  
+| spark.sql.extensions                      | 否 | Iceberg SQL 扩展插件                                                                                                     |  
+| spark.sql.catalog.hadoop                  | 否 | Iceberg catalog implementation                                                                                       |  
+| spark.sql.catalog.hadoop.type             | 否 | The underlying Iceberg catalog implementation, HiveCatalog, HadoopCatalog or left unset if using a custom catalog    |  
+| spark.sql.catalog.hadoop.warehouse        | 否 | Base path for the warehouse directory                                                                                |  
+
+### Hive 配置 
+| 参数名                | 是否可为空 | 参数说明                                                                         |  
+|:-------------------|:-----:|:-----------------------------------------------------------------------------|  
+| hive.jdbc.url      |   否   | Hive JDBC 连接地址，如 jdbc:hive2://hadoop:10000                                   |  
+| hive.jdbc.user     |   否   | Hive JDBC 连接用户名                                                              |  
+| hive.jdbc.password |   否   | Hive JDBC 连接密码                                                               |  
+| hive.external.jar  |   否   | Iceberg Hive 依赖包 ceberg-hive-runtime-0.13.1.jar 地址, 创建修改Iceberg Hive 表时需加载插件 |  
+
+### Kafka 配置
+| 参数名                                  | 是否可为空 | 参数说明                                |  
+|:-------------------------------------|:-----:|:------------------------------------|  
+| kafka.bootstrap.servers              |   否   | Kafka 服务地址                          |  
+| kafka.schema.registry.url            |   否   | Confluent Schema Register Server地址  |  
+| kafka.consumer.group.id              |   否   | Kafka Consumer Group ID             |  
+| kafka.consumer.topic                 |   否   | Data Topic Name                     |  
+| kafka.consumer.max.poll.records      |   否   | 每次读取返回的记录数                          |  
+| kafka.consumer.key.deserializer      |   否   | key 反序列化接口函数                        |  
+| kafka.consumer.value.deserialize     |   否   | value 反序列化接口函数                      |  
+| kafka.consumer.commit.timeout.millis |   否   | commit timeout                      | 
+
+
+## 数据 Metadata 信息配置
+| 参数名                                | 是否可为空 | 参数说明                                       |  
+|:-----------------------------------|:-----:|:-------------------------------------------|  
+| record.metadata.source.columns     |   否   | Debezium 解析结果的 source 域的元数据信息              |  
+| record.metadata.source.prefix      |   否   | Debezium 解析结果的 source 域的元数据信息列的附加前缀        |  
+| record.metadata.transaction.prefix |   否   | Debezium 解析结果的 transaction 域的元数据信息         |  
+| record.metadata.transaction.prefix |   否   | Debezium 解析结果的 transaction 域的元数据信息列的附加前缀   |  
+| record.metadata.kafka.columns      |   否   | Debezium 解析结果的 写入 Kafka 的元数据信息             |  
+| record.metadata.kafka.prefix       |   否   | Debezium 解析结果的 写入 Kafka 的元数据信息列的附加前缀    |  
+
+
+##  Iceberg Configs
+| 参数名                                                    | 是否可为空 | 参数说明                                             |  
+|:-------------------------------------------------------|:-----:|:-------------------------------------------------|  
+| iceberg.table.name                                     |   否   | Iceberg 表名，如  hadoop.db_gb18030_test.tbl_test_1  |  
+| iceberg.table.primaryKey                               |   否   | Iceberg 表的主键, 作为增量更新写入的判断字段                      |  
+| iceberg.table.comment                                  |   否   | Iceberg 表注释说明                                    |  
+| iceberg.table.properties                               |   否   | Iceberg 表的建表参数属性                                 |
+| iceberg.table.partitionBy                              |   否   | Iceberg 表分区列                                     |
+| iceberg.maintenance.enabled                            |   否   | 是否启动表维护管理功能, 如 清理快照 / 压缩小文件 / 重写 Manifests       |  
+| iceberg.maintenance.triggering.time                    |   否   | 表维护的开始最早执行时间,如  21:00:11                         |  
+| iceberg.maintenance.execute.interval                   |   否   | 表维护的时间间隔                                         |  
+| iceberg.maintenance.snapshot.expire.time               |   否   | 表快照的失效时间                                         |
+| iceberg.maintenance.compact.filter.column              |   否   | 表压缩处理的数据筛选条件列                                    |
+| iceberg.maintenance.compact.day.offset                 |   否   | 表压缩处理的数据 Offset 日期位移, 0 即表示压缩昨天的数据               |
+| iceberg.maintenance.compact.target.file.size.bytes     |   否   | 表压缩处理的结果文件大小                                     |
+| iceberg.maintenance.manifests.file.length              |   否   | 表 manifests 文件合并的结果文件大小                          |
+
