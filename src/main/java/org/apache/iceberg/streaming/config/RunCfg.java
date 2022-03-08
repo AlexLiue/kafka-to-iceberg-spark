@@ -89,9 +89,17 @@ public class RunCfg implements java.io.Serializable {
     public static final String ICEBERG_TABLE_LOCATION = "iceberg.table.location";
     public static final String ICEBERG_TABLE_COMMENT = "iceberg.table.comment";
     public static final String ICEBERG_TABLE_PROPERTIES = "iceberg.table.properties";
-
     public static final String ICEBERG_TABLE_PRIMARY_KEY = "iceberg.table.primaryKey";
 
+    public static final String ICEBERG_MAINTENANCE_ENABLED = "iceberg.maintenance.enabled";
+    public static final String ICEBERG_MAINTENANCE_TRIGGERING_TIME = "iceberg.maintenance.triggering.time";
+    public static final String ICEBERG_MAINTENANCE_EXECUTE_INTERVAL = "iceberg.maintenance.execute.interval";
+    public static final String ICEBERG_MAINTENANCE_SNAPSHOT_EXPIRE_TIME = "iceberg.maintenance.snapshot.expire.time";
+
+    public static final String ICEBERG_MAINTENANCE_COMPACT_FILTER_COLUMN = "iceberg.maintenance.compact.filter.column";
+    public static final String ICEBERG_MAINTENANCE_COMPACT_DAY_OFFSET = "iceberg.maintenance.compact.day.offset";
+    public static final String ICEBERG_MAINTENANCE_COMPACT_FILE_SIZE_BYTES = "iceberg.maintenance.compact.target.file.size.bytes";
+    public static final String ICEBERG_MAINTENANCE_MANIFESTS_FILE_LENGTH = "iceberg.maintenance.manifests.file.length";
 
 
 

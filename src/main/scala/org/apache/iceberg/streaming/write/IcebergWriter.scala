@@ -3,7 +3,7 @@ package org.apache.iceberg.streaming.write
 import org.apache.avro.{LogicalTypes, Schema}
 import org.apache.avro.Schema.Type
 import org.apache.avro.generic.GenericRecord
-import org.apache.iceberg.streaming.Kafka2Iceberg.{schemaBroadcastMaps, statusAccumulatorMaps}
+import org.apache.iceberg.streaming.Kafka2Iceberg.{icebergMaintenanceMaps, schemaBroadcastMaps, statusAccumulatorMaps}
 import org.apache.iceberg.streaming.avro.{AvroConversionHelper, TimestampZoned, TimestampZonedFactory}
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.core.accumulator.StatusAccumulator
@@ -74,10 +74,11 @@ object IcebergWriter  extends Logging {
            ): Unit = {
 
     /* 解析配置信息. */
-    val cfg = tableCfg.getCfgAsProperties
-    val icebergTableName: String = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val props = tableCfg.getCfgAsProperties
+    val icebergTableName: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
     val statusAcc: StatusAccumulator = statusAccumulatorMaps(icebergTableName)
     val schemaBroadcast: Broadcast[SchemaBroadcast] = schemaBroadcastMaps(icebergTableName)
+    val maintenance: IcebergMaintenance = icebergMaintenanceMaps(icebergTableName)
 
     logInfo(s"beginning write data into $icebergTableName ..." )
 
@@ -117,6 +118,15 @@ object IcebergWriter  extends Logging {
     df.show(false)
     writeToIceberg(spark, tableCfg, df, curSchema)
     logInfo(s"finished write data into $icebergTableName ..." )
+
+    /* Maintenance Table */
+   if(maintenance.checkTriggering()){
+     /* 执行表维护 */
+     maintenance.launchMaintenance()
+
+     /* 更新历史执行时间并重置标识 */
+     icebergMaintenanceMaps += (icebergTableName -> maintenance.updateAndResetTrigger)
+   }
   }
 
   /**

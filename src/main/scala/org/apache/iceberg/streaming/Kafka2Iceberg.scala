@@ -3,7 +3,7 @@ package org.apache.iceberg.streaming
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.config.{Config, JobCfgHelper, RunCfg, TableCfg}
-import org.apache.iceberg.streaming.write.IcebergWriter
+import org.apache.iceberg.streaming.write.{IcebergMaintenance, IcebergWriter}
 import org.apache.spark.SparkConf
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
@@ -33,9 +33,10 @@ class Kafka2Iceberg {}
  */
 object Kafka2Iceberg extends Logging{
 
-  /* Schema 共享数据信息 （Broadcast / Accumulator). */
+  /* Schema 共享数据信息 （Broadcast / Accumulator/ MaintenanceInfo). */
   var statusAccumulatorMaps: HashMap[String, StatusAccumulator] = _
   var schemaBroadcastMaps: HashMap[String, Broadcast[SchemaBroadcast]] = _
+  var icebergMaintenanceMaps: HashMap[String, IcebergMaintenance] = _
 
   /* 是否重启 Steaming 流(当数据 Schema 发生变动时需重启，以重复消费被上个 batch 丢弃的新 Schema Version 数据) */
   var restartStream: Boolean = _
@@ -265,8 +266,9 @@ object Kafka2Iceberg extends Logging{
    */
   def initRuntimeEnv(spark: SparkSession, cfgArr: Array[TableCfg]): Unit = {
     /* 初始化 Schema 共享数据信息 （Broadcast / Accumulator） */
-    statusAccumulatorMaps= HashMap[String, StatusAccumulator]()
-    schemaBroadcastMaps= HashMap[String, Broadcast[SchemaBroadcast]]()
+    statusAccumulatorMaps= new HashMap[String, StatusAccumulator]()
+    schemaBroadcastMaps = new HashMap[String, Broadcast[SchemaBroadcast]]()
+    icebergMaintenanceMaps = new HashMap[String, IcebergMaintenance]()
     for (cfg <- cfgArr) {
       /* 配置解析. */
       val props =  cfg.getCfgAsProperties
@@ -285,6 +287,14 @@ object Kafka2Iceberg extends Logging{
       val versionToSchemaMap: HashMap[Integer, Schema] = SchemaUtils.getVersionToSchemaMap(cfg)
       val schemaBroadcast = broadcast.SchemaBroadcast(schemaToVersionMap, versionToSchemaMap)
       schemaBroadcastMaps += (icebergTableName -> spark.sparkContext.broadcast(schemaBroadcast))
+
+
+      val maintenanceEnabled = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_ENABLED).toBoolean
+      val triggeringTime = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_TRIGGERING_TIME)
+      val executeInterval = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_EXECUTE_INTERVAL).toInt
+      val icebergMaintenance =  IcebergMaintenance(spark, maintenanceEnabled, triggeringTime, executeInterval, props)
+      icebergMaintenanceMaps += (icebergTableName -> icebergMaintenance)
+
     }
 
     logInfo(s"After Init StatusAccumulator [${statusAccumulatorMaps.mkString("\nMap(\n    ",",\n    ",")")}]")
