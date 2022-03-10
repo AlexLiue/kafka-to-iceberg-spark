@@ -2,7 +2,7 @@ package org.apache.iceberg.streaming.avro
 
 import org.apache.avro.Schema.Type.{ARRAY, BOOLEAN, BYTES, DOUBLE, ENUM, FIXED, FLOAT, INT, LONG, MAP, NULL, RECORD, STRING, UNION}
 import org.apache.avro.{LogicalTypes, Schema}
-import org.codehaus.jackson.node.TextNode
+
 
 import java.util
 
@@ -14,7 +14,8 @@ object SchemaFixLogicalType {
 
 
   def fixLogicalType(avroSchema: Schema): Schema = {
-    new Schema.Parser().parse(SchemaFixLogicalType.fixLogicalTypeHelper(avroSchema).toString())
+    val copySchema = new Schema.Parser().parse(avroSchema.toString)
+    SchemaFixLogicalType.fixLogicalTypeHelper(copySchema)
   }
 
   def fixLogicalType(avroSchema: String): Schema = {
@@ -30,7 +31,7 @@ object SchemaFixLogicalType {
             val connectName = schema.getProp("connect.name")
             connectName match {
               case "io.debezium.time.Date" =>
-                schema.addProp("logicalType", TextNode.valueOf("date"))
+                schema.addProp("logicalType","date")
               case _ =>
             }
           }
@@ -40,7 +41,7 @@ object SchemaFixLogicalType {
           val connectName = schema.getProp("connect.name")
             connectName match {
               case "io.debezium.time.ZonedTimestamp" =>
-                schema.addProp("logicalType", TextNode.valueOf("timestamp-zoned"))
+                schema.addProp("logicalType", "timestamp-zoned")
               case _ =>
             }
         }
@@ -54,13 +55,13 @@ object SchemaFixLogicalType {
           val connectName = schema.getProp("connect.name")
             connectName match {
               case "io.debezium.time.Timestamp" =>
-                schema.addProp("logicalType", TextNode.valueOf("timestamp-millis"))
+                schema.addProp("logicalType", "timestamp-millis")
               case "io.debezium.time.MicroTimestamp" =>
-                schema.addProp("logicalType", TextNode.valueOf("timestamp-micros"))
+                schema.addProp("logicalType", "timestamp-micros")
               case "io.debezium.time.ZonedTimestamp" =>
-                schema.addProp("logicalType", TextNode.valueOf("timestamp-zoned"))
+                schema.addProp("logicalType", "timestamp-zoned")
               case "io.debezium.time.MicroTime" =>
-                schema.addProp("logicalType", TextNode.valueOf("time-micros"))
+                schema.addProp("logicalType", "time-micros")
               case _ =>
             }
         }

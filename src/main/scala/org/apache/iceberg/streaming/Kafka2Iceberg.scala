@@ -143,16 +143,16 @@ object Kafka2Iceberg extends Logging{
    * @param useCfg 用户输入参数
    */
   def startStreamJob(tableCfg: TableCfg, useCfg: Properties): Unit = {
-    val prop = new Properties()
-    prop.load(new StringReader(tableCfg.getConfValue))
-    val bootstrapServers: String = prop.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS)
-    val schemaRegistryUrl: String = prop.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
-    val groupId: String = prop.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID)
-    val topics: Array[String] = prop.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",")
-    val maxPollRecords: String = prop.getProperty(RunCfg.KAFKA_CONSUMER_MAX_POLL_RECORDS)
-    val keyDeserializer: String = prop.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER)
-    val valueDeserializer: String = prop.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER)
-    val icebergTable: String = prop.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val props = new Properties()
+    props.load(new StringReader(tableCfg.getConfValue))
+    val bootstrapServers: String = props.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS)
+    val schemaRegistryUrl: String = props.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
+    val groupId: String = props.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID)
+    val topics: Array[String] = props.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",")
+    val maxPollRecords: String = props.getProperty(RunCfg.KAFKA_CONSUMER_MAX_POLL_RECORDS)
+    val keyDeserializer: String = props.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER)
+    val valueDeserializer: String = props.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER)
+    val icebergTable: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
 
     val kafkaParams = Map[String, Object](
       "bootstrap.servers" -> bootstrapServers,
@@ -224,6 +224,23 @@ object Kafka2Iceberg extends Logging{
           }
         } else {
           logInfo(s"table streaming rdd is empty ...")
+
+          val icebergTableName: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+          val maintenance: IcebergMaintenance = icebergMaintenanceMaps(icebergTableName)
+          /* Maintenance Table */
+          if(maintenance.enabled){
+            logInfo("Iceberg table maintenance enabled, start check and maintenance table ")
+            if(maintenance.checkTriggering()){
+              /* 执行表维护 */
+              maintenance.launchMaintenance()
+              /* 更新历史执行时间并重置标识 */
+              icebergMaintenanceMaps += (icebergTableName -> maintenance.updateAndResetTrigger)
+            }else{
+              logInfo("Iceberg table maintenance enabled, triggering check return false ")
+            }
+          }else{
+            logInfo("Iceberg table maintenance disabled  ")
+          }
         }
     }
   }
@@ -306,7 +323,7 @@ object Kafka2Iceberg extends Logging{
       val icebergTableName = prop.getProperty(RunCfg.ICEBERG_TABLE_NAME)
       val statusAcc = statusAccumulatorMaps(icebergTableName)
       val schemaBroadcast = schemaBroadcastMaps(icebergTableName)
-      if(statusAcc.schemaVersion > 1){
+      if(statusAcc.schemaVersion > schemaBroadcast.value.versionToSchemaMap.keySet.min){
         val schema = schemaBroadcast.value.versionToSchemaMap(statusAcc.schemaVersion)
         val dataFieldSchema = schema.getField("after").schema() /* 取 after 数值域的 schema */
         val schemaUpdated = HadoopUtils.checkAndAlterHadoopTableSchema(spark,

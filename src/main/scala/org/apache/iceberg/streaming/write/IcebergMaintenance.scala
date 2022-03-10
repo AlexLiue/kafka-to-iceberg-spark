@@ -1,5 +1,6 @@
 package org.apache.iceberg.streaming.write
 
+
 import org.apache.iceberg.catalog.TableIdentifier
 import org.apache.iceberg.expressions.Expressions
 import org.apache.iceberg.hadoop.HadoopCatalog
@@ -20,29 +21,22 @@ import java.util.{Calendar, Date, Properties}
  *
  *  如果 （ 当前系统时间 > triggeringTime ) 且 ((当前系统时间 - lastExecutionTime) >  executeInterval) 则执行表维护操作
  *
- * @param triggeringTime   执行  Iceberg 表维护操作的时间（24小格式: 如 21:00:00 ）
+ * @param triggeringTime   执行  Iceberg 表维护操作的时间（24小格式: 如 21:00:00  即维护操作限制为晚21点整开始执行 ）
  * @param executeInterval  执行  Iceberg 表维护操作的时间间隔，单位秒 （格式: 86400000 (即 24小时)）
  * @param lastExecuteDate  执行  Iceberg 表维护操作的历史时间，格式日期: 2021-12-23 21:00:00
  *
  */
 case class IcebergMaintenance (
-                               spark: SparkSession,
-                               enabled: Boolean,
-                               triggeringTime: String,
-                               executeInterval: Int,
-                               props: Properties,
-                               lastExecuteDate: String,
-                               triggeringFlag: Boolean,
-                        )extends Logging{
+                                spark: SparkSession,
+                                enabled: Boolean,
+                                triggeringTime: String,
+                                executeInterval: Int,
+                                props: Properties,
+                                lastExecuteDate: String
+                              )extends Logging{
 
   def updateAndResetTrigger(): IcebergMaintenance = {
-    val lastDate = dateFormat.parse(lastExecuteDate)
-    val lastCalendar = Calendar.getInstance
-    lastCalendar.setTime(lastDate)
-    lastCalendar.add(executeInterval, Calendar.MILLISECOND)
-
-    IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props,
-      dateFormat.format(lastCalendar.getTime), triggeringFlag = false)
+    IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, dateFormat.format(getNextTriggerCalendar.getTime))
   }
 
   /**
@@ -62,8 +56,10 @@ case class IcebergMaintenance (
    * 快照清理
    */
   def expireSnapshots(): Unit = {
-    val tsToExpire =  props.getProperty(RunCfg.ICEBERG_MAINTENANCE_SNAPSHOT_EXPIRE_TIME)
-    if(tsToExpire != null){
+    val tsToExpireCfg =  props.getProperty(RunCfg.ICEBERG_MAINTENANCE_SNAPSHOT_EXPIRE_TIME)
+    if(tsToExpireCfg != null){
+      val tsToExpire =  System.currentTimeMillis() - tsToExpireCfg.toLong
+
       val icebergTableName: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
       val tableItems = icebergTableName.split("\\.", 3)
       val namespace = tableItems(1)
@@ -80,12 +76,12 @@ case class IcebergMaintenance (
       val tableIdentifier = TableIdentifier.of(namespace, tableName)
       val table = hadoopCatalog.loadTable(tableIdentifier)
 
-      logInfo(s"Iceberg maintenance expire snapshots with expire time [${tsToExpire.toLong}]")
-      SparkActions
-        .get()
-        .expireSnapshots(table)
-        .expireOlderThan(tsToExpire.toLong)
-        .execute()
+      logInfo(s"Iceberg maintenance expire snapshots with expire time [${dateFormat.format(new Date(tsToExpire))}]")
+      SparkActions.
+        get().
+        expireSnapshots(table).
+        expireOlderThan(tsToExpire).
+        execute()
     }
   }
 
@@ -119,14 +115,14 @@ case class IcebergMaintenance (
     val lastDate = dateFormat.parse(lastExecuteDate)
     val lastCalendar = Calendar.getInstance
     lastCalendar.setTime(lastDate)
-    lastCalendar.add(dayOffset, Calendar.DAY_OF_YEAR)
+    lastCalendar.add(Calendar.DAY_OF_YEAR, dayOffset)
 
     /* filter lower bound */
     val lowerStr = s"${dayFormat.format(lastCalendar.getTime)} 00:00:00"
     val lower = dateFormat.parse(lowerStr).getTime
 
     /* filter upper bound */
-    lastCalendar.add(executeInterval, Calendar.MILLISECOND)
+    lastCalendar.add(Calendar.MILLISECOND, executeInterval)
     val upperStr = s"${dayFormat.format(lastCalendar.getTime)} 00:00:00"
     val upper = dateFormat.parse(s"${dayFormat.format(lastCalendar.getTime)} 00:00:00").getTime
     logInfo(s"Iceberg maintenance compact data files, with data column [filterColumn] from [$lowerStr] to [$upperStr], target file size [$targetFileSize]")
@@ -171,52 +167,68 @@ case class IcebergMaintenance (
   }
 
 
-
-
   /**
-   * 检测并更新执行表维护的 triggering
-   * @return
+   * 获取下次的 triggering time
+   *  @return
    */
-  def checkTriggering(): Boolean = {
-
+  def getNextTriggerCalendar: Calendar = {
     val lastDate = dateFormat.parse(lastExecuteDate)
     val lastCalendar = Calendar.getInstance
     lastCalendar.setTime(lastDate)
 
+    val nextCalendar = Calendar.getInstance
+    nextCalendar.setTime(lastDate)
+    nextCalendar.add(Calendar.MILLISECOND, executeInterval)  /* 上次执行时间 +  执行间隔 = 下次执行时间 */
+
+    val beginTriggeringTimeCalendar =  Calendar.getInstance
+    beginTriggeringTimeCalendar.setTime(timeFormat.parse(triggeringTime))
+    val beginTriggeringSecondOfDay = getSecondOfDay(beginTriggeringTimeCalendar)   /* 时分秒-的天计数秒 */
+
+    /* 修正  triggeringTime  执行时刻 */
+    nextCalendar.add(Calendar.SECOND,  beginTriggeringSecondOfDay - getSecondOfDay(nextCalendar))
+    nextCalendar
+  }
+
+  /**
+   * 检测并更新执行表维护的 triggering
+   *
+   * example-1:
+   * false:
+   *     last maintenance execute date[2022-03-09 13:28:11],
+   *     triggering time [13:30:00],
+   *     expect next execute date [2022-03-09 13:30:00],
+   *     current time [2022-03-09 13:29:21], will triggering in [39] seconds late
+   *
+   * example-2:
+   * true:
+   *     last maintenance execute date[2022-03-09 13:28:11],
+   *     triggering time [13:30:00],
+   *     expect next execute date [2022-03-09 13:30:00],
+   *     current time [2022-03-09 13:30:21]
+   *
+   * @return
+   */
+  def checkTriggering(): Boolean = {
     val currentCalendar = Calendar.getInstance
     currentCalendar.setTime(new Date(System.currentTimeMillis()))
     val currentSecondOfDay = getSecondOfDay(currentCalendar)  /* 时分秒-的天计数秒 */
 
-    val nextCalendar = Calendar.getInstance
-    nextCalendar.setTime(lastDate)
-    nextCalendar.add(executeInterval, Calendar.MILLISECOND)  /* 上次执行时间 +  执行间隔 */
-
-    val triggeringTimeCalendar =  Calendar.getInstance
-    triggeringTimeCalendar.setTime(timeFormat.parse(triggeringTime))
-    val triggeringSecondOfDay = getSecondOfDay(triggeringTimeCalendar)   /* 时分秒-的天计数秒 */
+    val nextCalendar = getNextTriggerCalendar
 
     /* 如果当前时间 大于 期待的下次触发时间 */
     if(currentCalendar.getTimeInMillis > nextCalendar.getTimeInMillis){
-
-       /* 如果当前 时间 且大于 triggeringTime 时间点 返回 true  */
-      if(currentSecondOfDay > triggeringSecondOfDay){
-        logInfo(s"Iceberg maintenance trigger check return true, last maintenance execute date[$lastExecuteDate], " +
-          s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}]")
-        IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, lastExecuteDate, triggeringFlag = true)
-        true
-      }else{
-        logInfo(s"Iceberg maintenance trigger check return false, last maintenance execute date[$lastExecuteDate], " +
-          s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}]," +
-          s"will triggering in [${triggeringSecondOfDay - currentSecondOfDay}] seconds late "
-        )
-        false
-      }
+      logInfo(s"Iceberg maintenance trigger check return true, last maintenance execute date [$lastExecuteDate], " +
+        s"triggering time [$triggeringTime], " +
+        s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}], " +
+        s"current time [${dateFormat.format(currentCalendar.getTime)}], " +
+        s"triggering maintenance iceberg table")
+      true
     }else{
-      logInfo(s"Iceberg maintenance trigger check return false, last maintenance execute date[$lastExecuteDate], " +
-        s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}]," +
-        s"will triggering in [${Math.max(
-          nextCalendar.getTimeInMillis - currentCalendar.getTimeInMillis,
-          triggeringSecondOfDay - currentSecondOfDay)}] seconds late ")
+      logInfo(s"Iceberg maintenance trigger check return false, last maintenance execute date [$lastExecuteDate], " +
+        s"triggering time [$triggeringTime], " +
+        s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}], " +
+        s"current time [${dateFormat.format(currentCalendar.getTime)}], " +
+        s"will triggering in [${getSecondOfDay(nextCalendar)- currentSecondOfDay}] seconds late ")
       false
     }
   }
@@ -227,16 +239,10 @@ case class IcebergMaintenance (
    * @param calendar Calendar
    * @return
    */
-  def getSecondOfDay(calendar: Calendar): Long = {
-     calendar.get(Calendar.HOUR_OF_DAY)*60*60 + calendar.get(Calendar.MINUTE)*60 + calendar.get(Calendar.SECOND)
+  def getSecondOfDay(calendar: Calendar): Int = {
+    calendar.get(Calendar.HOUR_OF_DAY)*60*60 + calendar.get(Calendar.MINUTE)*60 + calendar.get(Calendar.SECOND)
   }
-
-
 }
-
-
-
-
 
 
 
@@ -254,12 +260,12 @@ object IcebergMaintenance {
 
     val currentCalendar = Calendar.getInstance
     currentCalendar.setTime(new Date(System.currentTimeMillis()))
-    currentCalendar.add(-1, Calendar.DAY_OF_YEAR)
+    currentCalendar.add(Calendar.DAY_OF_YEAR, -1)
 
     /* 初始化上次执行时间为昨天，执行时刻为 triggeringTime */
-    val lastExecuteDate = s"dayFormat.format(currentCalendar.getTime) $triggeringTime"
+    val lastExecuteDate = s"${dayFormat.format(currentCalendar.getTime)} $triggeringTime"
 
-    new IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, lastExecuteDate, false)
+    new IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, lastExecuteDate)
   }
 
 }

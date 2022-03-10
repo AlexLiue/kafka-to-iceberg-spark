@@ -364,6 +364,19 @@ object SchemaUtils extends Logging{
   }
 
   /**
+   * 获取 Metadata 的 Source 域中需要解析的字段的 ts_ms 字段的 index （作为 Partition 计算字段）
+   *
+   * @param tableCfg TableCfg
+   * @param schema   Original Avro Schema
+   * @return
+   */
+  def getSourceTsMsFieldIndex(tableCfg: TableCfg, schema: Schema): Int = {
+    val sourceFields = getMetadataSourceFields(tableCfg)
+    val sourceSchema = schema.getField("source").schema()
+    sourceSchema.getField("ts_ms").pos()
+  }
+
+  /**
    * 从配置文件获取 Metadata 的 Source 域中需要解析的字段名
    *
    * @param tableCfg TableCfg
