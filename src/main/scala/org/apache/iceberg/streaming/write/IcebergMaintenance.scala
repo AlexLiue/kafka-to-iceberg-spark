@@ -22,7 +22,7 @@ import java.util.{Calendar, Date, Properties}
  *  如果 （ 当前系统时间 > triggeringTime ) 且 ((当前系统时间 - lastExecutionTime) >  executeInterval) 则执行表维护操作
  *
  * @param triggeringTime   执行  Iceberg 表维护操作的时间（24小格式: 如 21:00:00  即维护操作限制为晚21点整开始执行 ）
- * @param executeInterval  执行  Iceberg 表维护操作的时间间隔，单位秒 （格式: 86400000 (即 24小时)）
+ * @param triggeringInterval  执行  Iceberg 表维护操作的时间间隔，单位秒 （格式: 86400000 (即 24小时)）
  * @param lastExecuteDate  执行  Iceberg 表维护操作的历史时间，格式日期: 2021-12-23 21:00:00
  *
  */
@@ -30,13 +30,17 @@ case class IcebergMaintenance (
                                 spark: SparkSession,
                                 enabled: Boolean,
                                 triggeringTime: String,
-                                executeInterval: Int,
+                                triggeringInterval: Int,
                                 props: Properties,
                                 lastExecuteDate: String
                               )extends Logging{
 
+  /**
+   * 更新上次执行时间
+   * @return
+   */
   def updateAndResetTrigger(): IcebergMaintenance = {
-    IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, dateFormat.format(getNextTriggerCalendar.getTime))
+    IcebergMaintenance(spark, enabled, triggeringTime, triggeringInterval, props, dateFormat.format(System.currentTimeMillis()))
   }
 
   /**
@@ -76,12 +80,13 @@ case class IcebergMaintenance (
       val tableIdentifier = TableIdentifier.of(namespace, tableName)
       val table = hadoopCatalog.loadTable(tableIdentifier)
 
-      logInfo(s"Iceberg maintenance expire snapshots with expire time [${dateFormat.format(new Date(tsToExpire))}]")
+      logInfo(s"Iceberg maintenance execute expire snapshots with expire time [${dateFormat.format(new Date(tsToExpire))}]")
       SparkActions.
         get().
         expireSnapshots(table).
         expireOlderThan(tsToExpire).
         execute()
+      logInfo(s"Iceberg maintenance execute expire snapshots finished ")
     }
   }
 
@@ -122,10 +127,10 @@ case class IcebergMaintenance (
     val lower = dateFormat.parse(lowerStr).getTime
 
     /* filter upper bound */
-    lastCalendar.add(Calendar.MILLISECOND, executeInterval)
+    lastCalendar.add(Calendar.MILLISECOND, triggeringInterval)
     val upperStr = s"${dayFormat.format(lastCalendar.getTime)} 00:00:00"
     val upper = dateFormat.parse(s"${dayFormat.format(lastCalendar.getTime)} 00:00:00").getTime
-    logInfo(s"Iceberg maintenance compact data files, with data column [filterColumn] from [$lowerStr] to [$upperStr], target file size [$targetFileSize]")
+    logInfo(s"Iceberg maintenance execute compact data files, with data column [filterColumn] from [$lowerStr] to [$upperStr], target file size [$targetFileSize]")
     SparkActions
       .get()
       .rewriteDataFiles(table)
@@ -134,6 +139,7 @@ case class IcebergMaintenance (
         Expressions.lessThan(filterColumn, upper)))
       .option("target-file-size-bytes", targetFileSize)
       .execute()
+    logInfo(s"Iceberg maintenance execute compact data files finished ")
   }
 
 
@@ -159,16 +165,18 @@ case class IcebergMaintenance (
     val tableIdentifier = TableIdentifier.of(namespace, tableName)
     val table = hadoopCatalog.loadTable(tableIdentifier)
 
-    logInfo(s"Iceberg maintenance rewrite manifests to max length [$manifestsFileLength]")
+    logInfo(s"Iceberg maintenance execute rewrite manifests to max length [$manifestsFileLength]")
     SparkActions
       .get()
       .rewriteManifests(table).rewriteIf(x => x.length() > manifestsFileLength)
       .execute()
+    logInfo(s"Iceberg maintenance execute  rewrite manifests finished ")
   }
 
 
   /**
-   * 获取下次的 triggering time
+   * 获取下次的 triggering time , 最多每天执行触发一次
+   * executeInterval 需大于或等于 1 天 即 大于 86400000
    *  @return
    */
   def getNextTriggerCalendar: Calendar = {
@@ -178,7 +186,7 @@ case class IcebergMaintenance (
 
     val nextCalendar = Calendar.getInstance
     nextCalendar.setTime(lastDate)
-    nextCalendar.add(Calendar.MILLISECOND, executeInterval)  /* 上次执行时间 +  执行间隔 = 下次执行时间 */
+    nextCalendar.add(Calendar.MILLISECOND, triggeringInterval)  /* 上次执行时间 +  执行间隔 = 下次执行时间 */
 
     val beginTriggeringTimeCalendar =  Calendar.getInstance
     beginTriggeringTimeCalendar.setTime(timeFormat.parse(triggeringTime))
@@ -218,14 +226,14 @@ case class IcebergMaintenance (
     /* 如果当前时间 大于 期待的下次触发时间 */
     if(currentCalendar.getTimeInMillis > nextCalendar.getTimeInMillis){
       logInfo(s"Iceberg maintenance trigger check return true, last maintenance execute date [$lastExecuteDate], " +
-        s"triggering time [$triggeringTime], " +
+        s"triggering time [$triggeringTime], triggering interval [$triggeringInterval], " +
         s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}], " +
         s"current time [${dateFormat.format(currentCalendar.getTime)}], " +
         s"triggering maintenance iceberg table")
       true
     }else{
       logInfo(s"Iceberg maintenance trigger check return false, last maintenance execute date [$lastExecuteDate], " +
-        s"triggering time [$triggeringTime], " +
+        s"triggering time [$triggeringTime], triggering interval [$triggeringInterval], " +
         s"expect next execute date [${dateFormat.format(nextCalendar.getTime)}], " +
         s"current time [${dateFormat.format(currentCalendar.getTime)}], " +
         s"will triggering in [${getSecondOfDay(nextCalendar)- currentSecondOfDay}] seconds late ")
@@ -252,20 +260,19 @@ object IcebergMaintenance {
   val dayFormat = new SimpleDateFormat("yyyy-MM-dd")
   val timeFormat = new SimpleDateFormat("HH:mm:ss")
 
-  def apply( spark: SparkSession,
-             enabled: Boolean,
-             triggeringTime: String,
-             executeInterval:Int,
-             props: Properties): IcebergMaintenance = {
+  def apply(spark: SparkSession,
+            enabled: Boolean,
+            triggeringTime: String,
+            triggeringInterval:Int,
+            props: Properties): IcebergMaintenance = {
 
     val currentCalendar = Calendar.getInstance
     currentCalendar.setTime(new Date(System.currentTimeMillis()))
-    currentCalendar.add(Calendar.DAY_OF_YEAR, -1)
 
     /* 初始化上次执行时间为昨天，执行时刻为 triggeringTime */
     val lastExecuteDate = s"${dayFormat.format(currentCalendar.getTime)} $triggeringTime"
 
-    new IcebergMaintenance(spark, enabled, triggeringTime, executeInterval, props, lastExecuteDate)
+    new IcebergMaintenance(spark, enabled, triggeringTime, triggeringInterval, props, lastExecuteDate)
   }
 
 }

@@ -93,7 +93,7 @@ public class RunCfg implements java.io.Serializable {
 
     public static final String ICEBERG_MAINTENANCE_ENABLED = "iceberg.maintenance.enabled";
     public static final String ICEBERG_MAINTENANCE_TRIGGERING_TIME = "iceberg.maintenance.triggering.time";
-    public static final String ICEBERG_MAINTENANCE_EXECUTE_INTERVAL = "iceberg.maintenance.execute.interval";
+    public static final String ICEBERG_MAINTENANCE_TRIGGERING_INTERVAL = "iceberg.maintenance.triggering.interval";
     public static final String ICEBERG_MAINTENANCE_SNAPSHOT_EXPIRE_TIME = "iceberg.maintenance.snapshot.expire.time";
 
     public static final String ICEBERG_MAINTENANCE_COMPACT_FILTER_COLUMN = "iceberg.maintenance.compact.filter.column";

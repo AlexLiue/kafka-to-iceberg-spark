@@ -3,7 +3,7 @@ package org.apache.iceberg.streaming.write
 import org.apache.avro.{LogicalTypes, Schema}
 import org.apache.avro.Schema.Type
 import org.apache.avro.generic.GenericRecord
-import org.apache.iceberg.streaming.Kafka2Iceberg.{schemaBroadcastMaps, statusAccumulatorMaps}
+import org.apache.iceberg.streaming.Kafka2Iceberg.{icebergMaintenanceMaps, schemaBroadcastMaps, statusAccumulatorMaps}
 import org.apache.iceberg.streaming.avro.{AvroConversionHelper, TimestampZoned, TimestampZonedFactory}
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.core.accumulator.StatusAccumulator
@@ -14,12 +14,12 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.GenericRow
-import org.apache.spark.sql.functions.col
-import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType, TimestampType}
+import org.apache.spark.sql.functions.current_date
+import org.apache.spark.sql.types.{DataTypes, DateType, IntegerType, LongType, StringType, StructField, StructType, TimestampType}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
-import java.sql.Timestamp
-import java.util.Properties
+import java.sql.Date
+import java.util.{ Properties}
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
@@ -28,6 +28,7 @@ import scala.collection.mutable
  * Iceberg 数据存储对象
  */
 object IcebergWriter  extends Logging {
+
 
   /**
    * Write DataFrame MERGE INTO Iceberg Table
@@ -51,13 +52,13 @@ object IcebergWriter  extends Logging {
 
     val writeSql =
       s"""
-         |MERGE INTO $icebergTableName AS t
-         |USING (SELECT * from $tempTable) AS s
-         |ON ${primaryKey.split(",").map(key => s"t.${key.trim} = s.${key.trim}").mkString(" and ")}
-         |WHEN MATCHED AND s.${sourcePrefix}op = 'u' THEN UPDATE SET *
-         |WHEN MATCHED AND s.${sourcePrefix}op = 'd' THEN DELETE
-         |WHEN NOT MATCHED THEN INSERT *
-         |""".stripMargin
+        |MERGE INTO $icebergTableName AS t
+        |USING (SELECT * from $tempTable) AS s
+        |ON ${primaryKey.split(",").map(key => s"t.${key.trim} = s.${key.trim}").mkString(" and ")}
+        |WHEN MATCHED AND s.${sourcePrefix}op = 'u' THEN UPDATE SET *
+        |WHEN MATCHED AND s.${sourcePrefix}op = 'd' THEN DELETE
+        |WHEN NOT MATCHED THEN INSERT *
+        |""".stripMargin
 
     spark.sql(writeSql)
   }
@@ -79,6 +80,7 @@ object IcebergWriter  extends Logging {
     val icebergTableName: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
     val statusAcc: StatusAccumulator = statusAccumulatorMaps(icebergTableName)
     val schemaBroadcast: Broadcast[SchemaBroadcast] = schemaBroadcastMaps(icebergTableName)
+    val maintenance: IcebergMaintenance = icebergMaintenanceMaps(icebergTableName)
 
     logInfo(s"beginning write data into $icebergTableName ..." )
 
@@ -90,15 +92,13 @@ object IcebergWriter  extends Logging {
     val transactionIndex: Seq[Int] =  SchemaUtils.getTransactionFieldIndex(tableCfg, curSchema)
     val kafkaColumns: Seq[String] = tableCfg.getCfgAsProperties.getProperty(RunCfg.RECORD_METADATA_KAFKA_COLUMNS).split(",").map(_.trim)
 
-
     val rddRow = rdd.mapPartitions[Row](
-      records => {
+     records => {
         /* Schema HashCode 计算方式与 Java Run ENV 有关, 因此需在 Executor 节点中计算 hashCode */
         /* curSchemaHashCode 用于快速对比判断当前处理记录的 Schema hashCode 是否更新，不考虑 hash 碰撞问题 */
         val curSchemaHashCode = curSchema.hashCode()
-
-        logInfo(s"current schema [${curSchema.toString}], current struct type [${curStructType.toString}]")
         val convertor = AvroConversionHelper.createConverterToRow(curSchema, curStructType)
+
         val keyedRowMap = new mutable.HashMap[GenericRecord, Row]()
         records.foreach {
           record: ConsumerRecord[GenericRecord, GenericRecord] => {
@@ -115,19 +115,21 @@ object IcebergWriter  extends Logging {
       }
     )
     val structType = generateStructType(tableCfg, curSchema, curStructType, sourceIndex, transactionIndex,kafkaColumns)
-
-    val t1 = rddRow.collect()
-
-    logInfo(t1.mkString(",\n"))
-    logInfo(structType.fields.mkString(", "))
-
-    val df = spark.createDataFrame(rddRow, structType) //.withColumn("_src_time", col("_src_ts_ms").cast(TimestampType))
+    val df = spark.createDataFrame(rddRow, structType)
     df.show(false)
-    df.printSchema()
     writeToIceberg(spark, tableCfg, df, curSchema)
     logInfo(s"finished write data into $icebergTableName ..." )
 
+    /* Maintenance Table */
+   if(maintenance.checkTriggering()){
+     /* 执行表维护 */
+     maintenance.launchMaintenance()
 
+     /* 更新历史执行时间并重置标识 */
+     logInfo(s"before update maintenance updateAndResetTrigger [${maintenance.toString}]")
+     icebergMaintenanceMaps += (icebergTableName -> maintenance.updateAndResetTrigger)
+     logInfo(s"after update maintenance updateAndResetTrigger [${icebergMaintenanceMaps(icebergTableName).toString}]")
+   }
   }
 
   /**
@@ -143,7 +145,7 @@ object IcebergWriter  extends Logging {
                           kafkaColumns: Seq[String]
                         ): StructType = {
     val dataColumnSize = curSchema.getField("after").schema().getTypes.asScala.filter(_.getType != Type.NULL).head.getFields.size()
-    val structFieldSize = sourceIndex.length + 2 + transIndex.length + kafkaColumns.size + dataColumnSize
+    val structFieldSize = sourceIndex.length + 3 + transIndex.length + kafkaColumns.size + dataColumnSize
     val structFields  = new java.util.ArrayList[StructField](structFieldSize)
     val cfg = tableCfg.getCfgAsProperties
     val curStructFields = curStructType.fields
@@ -152,17 +154,15 @@ object IcebergWriter  extends Logging {
     val sourcePrefix = cfg.getProperty(RunCfg.RECORD_METADATA_SOURCE_PREFIX).trim
     /* 原始的 Source StructField [列已重命名-附加前缀] */
     val sourceStructFields  = curStructFields.apply(curSchema.getField("source").pos()).dataType.
-      asInstanceOf[StructType].fields.map(x =>
-      StructField(sourcePrefix+x.name, x.dataType, nullable = true, x.metadata)
-    )
-//    sourceIndex.foreach(x => structFields.add(sourceStructFields.apply(x)))
-//    structFields.add(StructField(sourcePrefix+"time", TimestampType, nullable = true, null))
+      asInstanceOf[StructType].fields.map(x => StructField(sourcePrefix+x.name, x.dataType, nullable = true, x.metadata))
+    sourceIndex.foreach(x => structFields.add(sourceStructFields.apply(x)))
+    structFields.add(StructField(sourcePrefix+"time", DateType, nullable = true))
 
     /* 附加 Metadata  opType / debeziumTime */
     val optField = curStructFields.apply(curSchema.getField("op").pos())  /* 数据库的操作类型 */
     val tsField = curStructFields.apply(curSchema.getField("ts_ms").pos()) /* log 解析时间 */
     structFields.add(StructField(sourcePrefix+optField.name, optField.dataType, nullable = true, optField.metadata))
-    structFields.add(StructField(sourcePrefix+tsField.name+"_r", LongType, nullable = true, tsField.metadata))
+    structFields.add(StructField(sourcePrefix+tsField.name+"_r", tsField.dataType, nullable = true, tsField.metadata))
 
     /* 附加 Metadata Transaction 信息 */
     val transPrefix = cfg.getProperty(RunCfg.RECORD_METADATA_TRANSACTION_PREFIX).trim
@@ -183,6 +183,7 @@ object IcebergWriter  extends Logging {
         case _ => logWarning(s"Unknown kafka metadata column [$column]")
       }
     }
+
 
     /* 附加 Column Data Value [ 数值 统一使用 after 域的类型定义 ]*/
     val afterStructFields: Array[StructField]  =
@@ -234,7 +235,7 @@ object IcebergWriter  extends Logging {
       val sourceSize = sourceIndex.size
       val transactionSize = transactionIndex.size
 
-      val valueSize = sourceSize + 2 + transactionSize + kafkaColumns.size + dataRow.size
+      val valueSize = sourceSize + 3 + transactionSize + kafkaColumns.size + dataRow.size
       val values = new Array[Any](valueSize)
 
       /* 附加 Metadata Source 信息 */
@@ -242,18 +243,18 @@ object IcebergWriter  extends Logging {
       for (i <- 0 until sourceSize) {
         values.update(i, sourceRow(sourceIndex(i)))
       }
-//      /* source time for partition */
-//      val srcTimeIndex = recordSchema.getField("source").schema().getField("ts_ms").pos()
-//      values.update(sourceSize,   new Timestamp(sourceRow(srcTimeIndex).asInstanceOf[Long]))
+      /* source time for partition */
+      val srcTimeIndex = recordSchema.getField("source").schema().getField("ts_ms").pos()
+      values.update(sourceSize,  new Date(sourceRow(srcTimeIndex).asInstanceOf[Long]))
 
       /* 附加 Metadata  opType / debeziumTime */
       val debeziumTime: Long = row.get(record.getSchema.getField("ts_ms").pos()).asInstanceOf[Long]
-      values.update(sourceSize + 0, opType)
-      values.update(sourceSize  + 1, debeziumTime)
+      values.update(sourceSize + 1, opType)
+      values.update(sourceSize  + 2, debeziumTime)
 
       /* 附加 Metadata Transaction 信息 */
       val transaction = row.get(record.getSchema.getField("transaction").pos())
-      val tranIndexOffset = sourceSize + 2
+      val tranIndexOffset = sourceSize + 3
       if(transaction != null){
         val transactionRow: Row = transaction.asInstanceOf[Row]
         for (i <- 0 until transactionSize) {
@@ -288,4 +289,5 @@ object IcebergWriter  extends Logging {
       (consumerRecord.key(), null)
     }
   }
+
 }

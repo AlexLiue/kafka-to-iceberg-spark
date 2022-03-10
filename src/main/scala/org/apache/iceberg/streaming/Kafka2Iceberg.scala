@@ -308,7 +308,7 @@ object Kafka2Iceberg extends Logging{
 
       val maintenanceEnabled = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_ENABLED).toBoolean
       val triggeringTime = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_TRIGGERING_TIME)
-      val executeInterval = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_EXECUTE_INTERVAL).toInt
+      val executeInterval = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_TRIGGERING_INTERVAL).toInt
       val icebergMaintenance =  IcebergMaintenance(spark, maintenanceEnabled, triggeringTime, executeInterval, props)
       icebergMaintenanceMaps += (icebergTableName -> icebergMaintenance)
 
