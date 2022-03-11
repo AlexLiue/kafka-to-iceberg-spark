@@ -108,7 +108,7 @@ class IcebergMaintenanceTest extends org.scalatest.FunSuite {
     val spark = getSparkSession
     val props = getProperties
     val triggeringTime = props.getProperty(RunCfg.ICEBERG_MAINTENANCE_TRIGGERING_TIME)
-    val executeInterval =  props.getProperty(RunCfg.ICEBERG_MAINTENANCE_EXECUTE_INTERVAL).toInt
+    val executeInterval =  props.getProperty(RunCfg.ICEBERG_MAINTENANCE_TRIGGERING_INTERVAL).toInt
     val currentCalendar = Calendar.getInstance
     currentCalendar.setTime(new Date(System.currentTimeMillis()))
     currentCalendar.add (Calendar.MILLISECOND, -40000)
