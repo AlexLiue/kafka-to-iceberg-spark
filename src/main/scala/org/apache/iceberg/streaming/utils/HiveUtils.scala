@@ -77,7 +77,6 @@ object HiveUtils extends Logging{
     val createTableStmt = conn.prepareStatement(createTableDdl)
     createTableStmt.executeUpdate()
     createTableStmt.close()
-
     conn.close()
   }
 }

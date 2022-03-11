@@ -86,6 +86,7 @@ case class IcebergMaintenance (
         expireSnapshots(table).
         expireOlderThan(tsToExpire).
         execute()
+      hadoopCatalog.close()
       logInfo(s"Iceberg maintenance execute expire snapshots finished ")
     }
   }
@@ -139,6 +140,7 @@ case class IcebergMaintenance (
         Expressions.lessThan(filterColumn, upper)))
       .option("target-file-size-bytes", targetFileSize)
       .execute()
+    hadoopCatalog.close()
     logInfo(s"Iceberg maintenance execute compact data files finished ")
   }
 
@@ -170,6 +172,7 @@ case class IcebergMaintenance (
       .get()
       .rewriteManifests(table).rewriteIf(x => x.length() > manifestsFileLength)
       .execute()
+    hadoopCatalog.close()
     logInfo(s"Iceberg maintenance execute  rewrite manifests finished ")
   }
 
