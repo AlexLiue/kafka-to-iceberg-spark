@@ -1,5 +1,8 @@
 package org.apache.iceberg.streaming.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.sql.*;
 import java.text.SimpleDateFormat;
@@ -7,6 +10,7 @@ import java.util.ArrayList;
 
 /** Get job conf from mysql. */
 public class MySQLCfgHelper {
+    private static final Logger logger =  LoggerFactory.getLogger(MySQLCfgHelper.class);
 
     /**
      * 从 MySQL 配置库中读取作业运行配置信息.
@@ -32,6 +36,7 @@ public class MySQLCfgHelper {
                 String.format(
                         "select * from `streaming`.`tbl_streaming_job_conf` where %s",
                         condition);
+        logger.info(String.format("load run configure with url[%s], user[%s], prepareSQL[%s]", url, user, prepareSQL));
         Class.forName(driver);
         Connection conn = DriverManager.getConnection(url, user, password);
         PreparedStatement statement = conn.prepareStatement(prepareSQL);

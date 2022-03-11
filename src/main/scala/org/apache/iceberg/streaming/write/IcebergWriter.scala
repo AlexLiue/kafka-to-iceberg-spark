@@ -102,7 +102,7 @@ object IcebergWriter  extends Logging {
         val keyedRowMap = new mutable.HashMap[GenericRecord, Row]()
         records.foreach {
           record: ConsumerRecord[GenericRecord, GenericRecord] => {
-            if (record.value.getSchema.hashCode().equals(curSchemaHashCode)) {
+            if (record.value != null && record.value.getSchema.hashCode().equals(curSchemaHashCode)) {
               statusAcc.updateCurOffset(record)
               val (key, value) = convertorGenericRecordToRow(record, convertor, sourceIndex, transactionIndex, kafkaColumns)
               if (value != null) {
