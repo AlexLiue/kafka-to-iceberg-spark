@@ -5,6 +5,9 @@ import org.apache.iceberg.mr.hive.HiveIcebergStorageHandler
 class HiveUtilsTest extends org.scalatest.FunSuite {
 
   test("testCreateHiveTableIfNotExists") {
+
+    val t = 0.1 + 0.2 - 3 /10
+    t
     val hiveUrl = "jdbc:hive2://hadoop:10000"
     val hiveUser = ""
     val hivePassword = ""

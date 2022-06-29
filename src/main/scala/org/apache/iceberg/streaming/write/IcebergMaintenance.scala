@@ -55,7 +55,6 @@ case class IcebergMaintenance (
     rewriteManifests()
   }
 
-
   /**
    * 快照清理
    */

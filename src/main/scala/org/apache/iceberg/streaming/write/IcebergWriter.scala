@@ -1,10 +1,10 @@
 package org.apache.iceberg.streaming.write
 
-import org.apache.avro.{LogicalTypes, Schema}
+import org.apache.avro.Schema
 import org.apache.avro.Schema.Type
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.Kafka2Iceberg.{icebergMaintenanceMaps, schemaBroadcastMaps, statusAccumulatorMaps}
-import org.apache.iceberg.streaming.avro.{AvroConversionHelper, TimestampZoned, TimestampZonedFactory}
+import org.apache.iceberg.streaming.avro.AvroConversionHelper
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.core.accumulator.StatusAccumulator
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
@@ -14,12 +14,11 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.GenericRow
-import org.apache.spark.sql.functions.current_date
-import org.apache.spark.sql.types.{DataTypes, DateType, IntegerType, LongType, StringType, StructField, StructType, TimestampType}
+import org.apache.spark.sql.types.{DateType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import java.sql.Date
-import java.util.{ Properties}
+import java.util.Properties
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
