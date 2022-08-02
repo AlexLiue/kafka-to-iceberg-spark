@@ -150,9 +150,10 @@ object SchemaUtils extends Logging{
             client.getVersion(String.format("%s-value", topicPartition.topic), new AvroSchema(record.value.getSchema)))
           loopFlag = false
         }
+        loopTimes = loopTimes - 1
       }
       consumer.unsubscribe() /* clean */
-      loopTimes = loopTimes - 1
+
     }
     consumer.close()
     logInfo(s"Kafka partition schema version [${schemaVersions.mkString(",")}]")
